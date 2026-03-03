@@ -155,11 +155,7 @@ function AlarmGauge({ pct }: { pct: number | null | undefined }) {
               Based on samples stored in Postgres over the last 24 hours.
             </div>
 
-            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-              Tip: leave AHUStatus in <span className="font-bold">ALARM</span>{" "}
-              for a few minutes and refresh — the gauge will move as new rows are
-              logged.
-            </div>
+            
           </div>
         </div>
       </div>
