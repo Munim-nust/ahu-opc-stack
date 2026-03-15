@@ -7,6 +7,13 @@ import {
   RadialBar,
   ResponsiveContainer,
   PolarAngleAxis,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
 } from "recharts";
 
 type KPIResponse = {
@@ -19,12 +26,31 @@ type KPIResponse = {
   peak_cooling_demand_24h: number | null;
 };
 
+type HistoryPoint = {
+  time: string;
+  value: number | null;
+  text?: string | null;
+};
+
+type HistoryResponse = {
+  ahuId: string;
+  tag: string;
+  hours: number;
+  points: HistoryPoint[];
+};
+
 type KPIItem = {
   key: keyof KPIResponse;
   title: string;
   unit?: string;
   digits?: number;
   hint?: string;
+};
+
+type TrendOption = {
+  label: string;
+  value: string;
+  unit: string;
 };
 
 function clamp(n: number, min = 0, max = 100) {
@@ -77,14 +103,8 @@ function AccentCard({
 function AlarmGauge({ pct }: { pct: number | null | undefined }) {
   const value = typeof pct === "number" ? clamp(pct) : 0;
 
-  const gaugeData = useMemo(
-    () => [
-      { name: "alarm", value }, // single bar
-    ],
-    [value]
-  );
+  const gaugeData = useMemo(() => [{ name: "alarm", value }], [value]);
 
-  // Status label (simple and personal, not “enterprise”)
   const label =
     typeof pct !== "number"
       ? "No data yet"
@@ -138,11 +158,7 @@ function AlarmGauge({ pct }: { pct: number | null | undefined }) {
                 endAngle={-270}
               >
                 <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                <RadialBar
-                  background
-                  dataKey="value"
-                  cornerRadius={10}
-                />
+                <RadialBar background dataKey="value" cornerRadius={10} />
               </RadialBarChart>
             </ResponsiveContainer>
           </div>
@@ -154,8 +170,6 @@ function AlarmGauge({ pct }: { pct: number | null | undefined }) {
             <div className="mt-1 text-sm font-medium text-slate-600">
               Based on samples stored in Postgres over the last 24 hours.
             </div>
-
-            
           </div>
         </div>
       </div>
@@ -165,9 +179,12 @@ function AlarmGauge({ pct }: { pct: number | null | undefined }) {
 
 export default function AnalyticsPage() {
   const [kpis, setKpis] = useState<KPIResponse | null>(null);
+  const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Add/edit KPIs here later (scales nicely)
+  const [selectedTag, setSelectedTag] = useState("ChilledWaterInletTemp_C");
+  const [selectedHours, setSelectedHours] = useState("24");
+
   const KPI_LIST: KPIItem[] = [
     {
       key: "avg_chw_inlet_24h",
@@ -181,7 +198,7 @@ export default function AnalyticsPage() {
       title: "Avg CHW ΔT (24h)",
       unit: "°C",
       digits: 2,
-      hint: "Outlet − Inlet",
+      hint: "Outlet - Inlet",
     },
     {
       key: "filter_dp_growth_rate_7d_pa_per_day",
@@ -206,11 +223,20 @@ export default function AnalyticsPage() {
     },
   ];
 
+  const TREND_OPTIONS: TrendOption[] = [
+    { label: "CHW Inlet Temp", value: "ChilledWaterInletTemp_C", unit: "°C" },
+    { label: "CHW Outlet Temp", value: "ChilledWaterOutletTemp_C", unit: "°C" },
+    { label: "Filter ΔP", value: "InletFilterDP_Pa", unit: "Pa" },
+    { label: "Cooling Demand", value: "CoolingDemand_TR", unit: "TR" },
+    { label: "Fan Speed", value: "FanSpeed_rpm", unit: "rpm" },
+  ];
+
+  const selectedTrend = TREND_OPTIONS.find((t) => t.value === selectedTag);
+
   useEffect(() => {
-    const load = async () => {
+    const loadKpis = async () => {
       try {
         setErr(null);
-        // If you added the Next.js proxy route earlier, use this:
         const r = await fetch("/api/kpis?ahuId=AHU-0001", { cache: "no-store" });
         if (!r.ok) throw new Error(await r.text());
         const j = await r.json();
@@ -220,10 +246,40 @@ export default function AnalyticsPage() {
       }
     };
 
-    load();
-    const id = setInterval(load, 5000);
+    loadKpis();
+    const id = setInterval(loadKpis, 5000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const r = await fetch(
+          `/api/history?ahuId=AHU-0001&tag=${encodeURIComponent(
+            selectedTag
+          )}&hours=${encodeURIComponent(selectedHours)}`,
+          { cache: "no-store" }
+        );
+        if (!r.ok) throw new Error(await r.text());
+        const j = await r.json();
+        setHistory(j);
+      } catch (e: any) {
+        console.error(e?.message || "Failed to fetch history");
+      }
+    };
+
+    loadHistory();
+  }, [selectedTag, selectedHours]);
+
+  const chartData =
+    history?.points.map((p, index) => ({
+      index,
+      time: new Date(p.time).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      value: p.value,
+    })) ?? [];
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-100 via-sky-50 to-slate-100 p-6 font-sans">
@@ -249,7 +305,7 @@ export default function AnalyticsPage() {
               Historical KPIs
             </h1>
             <p className="mt-1 text-sm font-medium text-white/80">
-              Last 24 hours + 7-day trend (Postgres-backed)
+              Last 24 hours + 7 day trend (Postgres backed)
             </p>
           </div>
 
@@ -264,12 +320,10 @@ export default function AnalyticsPage() {
         </div>
       </header>
 
-      {/* Top: Alarm visualization */}
       <section className="mb-6">
         <AlarmGauge pct={kpis?.alarm_pct_24h ?? null} />
       </section>
 
-      {/* KPI cards (5 here) */}
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {KPI_LIST.map((k) => (
           <AccentCard
@@ -282,7 +336,69 @@ export default function AnalyticsPage() {
         ))}
       </section>
 
-      {/* Small footer note for LinkedIn polish */}
+      <section className="mt-6 overflow-hidden rounded-2xl border border-sky-100 bg-white/90 shadow-lg backdrop-blur-sm">
+        <div className="h-1 w-full bg-gradient-to-r from-sky-400 via-cyan-400 to-blue-500" />
+        <div className="p-4">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold tracking-wide text-slate-500">
+                Historical Trend Explorer
+              </div>
+              <h2 className="mt-1 text-lg font-bold text-slate-900">
+                {selectedTrend?.label ?? "Trend"} Trend
+              </h2>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <select
+                value={selectedTag}
+                onChange={(e) => setSelectedTag(e.target.value)}
+                className="rounded-xl border border-sky-100 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm outline-none"
+              >
+                {TREND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={selectedHours}
+                onChange={(e) => setSelectedHours(e.target.value)}
+                className="rounded-xl border border-sky-100 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm outline-none"
+              >
+                <option value="1">Last 1 hour</option>
+                <option value="6">Last 6 hours</option>
+                <option value="24">Last 24 hours</option>
+                <option value="168">Last 7 days</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" minTickGap={30} />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  name={selectedTrend?.label ?? "Value"}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="mt-3 text-xs font-medium text-slate-500">
+            Showing {selectedTrend?.label} over the last {selectedHours} hour(s).
+          </div>
+        </div>
+      </section>
+
       <div className="mt-6 text-center text-xs font-medium text-slate-500">
         Data source: OPC UA → FastAPI → PostgreSQL → KPI queries → Next.js UI
       </div>
