@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   const tag = url.searchParams.get("tag") ?? "ChilledWaterInletTemp_C";
   const hours = url.searchParams.get("hours") ?? "24";
 
-  const backendUrl = `http://127.0.0.1:8000/api/history?ahuId=${encodeURIComponent(
+  const backendUrl = `http://127.0.0.1:8001/api/history?ahuId=${encodeURIComponent(
     ahuId
   )}&tag=${encodeURIComponent(tag)}&hours=${encodeURIComponent(hours)}`;
 

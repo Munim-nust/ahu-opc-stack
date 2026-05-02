@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -63,7 +63,7 @@ export default function Page() {
   useEffect(() => {
     let alive = true;
     const ahuId = "AHU-0001";
-    const ws = new WebSocket(`ws://localhost:8000/ws/ahu/${ahuId}`);
+    const ws = new WebSocket(`ws://localhost:8001/ws/ahu/${ahuId}`);
 
     ws.onopen = () => {
       if (!alive) return;
@@ -232,8 +232,8 @@ export default function Page() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="chwExpected" name="Expected" dot={false} />
-                <Line type="monotone" dataKey="chwCurrent" name="Current" dot={false} />
+                <Line type="monotone" dataKey="chwExpected" name="Expected" stroke="#6366f1" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="chwCurrent" name="Current" stroke="#f59e0b" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>

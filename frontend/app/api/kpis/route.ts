@@ -4,7 +4,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const ahuId = url.searchParams.get("ahuId") ?? "AHU-0001";
 
-  const backendUrl = `http://127.0.0.1:8000/api/kpis?ahuId=${encodeURIComponent(ahuId)}`;
+  const backendUrl = `http://127.0.0.1:8001/api/kpis?ahuId=${encodeURIComponent(ahuId)}`;
 
   const res = await fetch(backendUrl, { cache: "no-store" });
 

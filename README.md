@@ -1,175 +1,216 @@
-🚀 AHU OPC UA Dashboard
+# AHU OPC UA Dashboard
 
-A full-stack AHU monitoring and analytics system built using industrial communication protocols and modern web technologies.
+A full-stack Air Handling Unit (AHU) monitoring and analytics system. Live sensor data is read from **Kepware OPC UA**, written to **PostgreSQL**, and streamed to a **Next.js** dashboard via WebSockets. All data shown on the dashboard originates exclusively from the database — Kepware is the single source of truth.
 
-🛠 Tech Stack
+---
 
-OPC UA – Simulated AHU server using Python (asyncua)
+## Architecture
 
-FastAPI – Backend (OPC client, WebSocket streaming, KPI APIs)
+```
+Kepware OPC UA (port 49320)
+        │  poll every 1 s
+        ▼
+  FastAPI Backend
+        │  write all tags + computed series
+        ▼
+  PostgreSQL (tag_reading table)
+        │  read back latest + series
+        ▼
+  WebSocket broadcast → Realtime Dashboard (Next.js)
+  REST API           → Analytics Page   (Next.js)
+```
 
-PostgreSQL – Time-series data storage
+---
 
-Next.js – Realtime and Historical dashboards
+## Tech Stack
 
-🏗 Architecture
-OPC UA Server
-      ↓
-FastAPI Backend (WebSocket + KPI API + DB logging)
-      ↓
-PostgreSQL (Historical storage)
-      ↓
-Next.js Frontend (Realtime + Analytics)
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 16, React 19, TypeScript, Recharts, Tailwind CSS 4 |
+| Backend | Python FastAPI, asyncua (OPC UA client), asyncpg |
+| Database | PostgreSQL 16 |
+| Protocol | OPC UA via Kepware (live tags) |
 
-The system simulates an AHU, streams live data via WebSockets, logs values into PostgreSQL, and computes historical KPIs.
+---
 
-📦 Prerequisites
+## Features
 
-Python 3.11+
+- **Realtime Dashboard** — 16 live AHU tag cards + 2 animated line charts (CHW Energy, Cooling Demand/Delivered) streamed via WebSocket
+- **Historical Analytics** — tag trend explorer with 1h / 6h / 12h / 24h / 3d / 7d range selector, min/avg/max statistics
+- **Tier 1 Energy KPIs** — computed every poll cycle from raw Kepware values:
+  - Cooling energy consumption (kWh/24h)
+  - Filter remaining life % with progress bar
+  - Estimated electricity cost ($/24h at $0.12/kWh)
+  - Coefficient of Performance (COP = Q_cooling / W_fan)
+- **PDF Report** — professional print layout with branded header, all KPI cards, trend chart, and last-30-readings data table
+- **Alarm tracking** — % time in ALARM state with radial gauge
 
-Node.js 18+
+---
 
-PostgreSQL 16
+## Prerequisites
 
-Git
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 16
+- Kepware KEPServerEX (or compatible OPC UA server) running on `opc.tcp://localhost:49320`
 
-1️⃣ Clone the Repository
+---
+
+## Setup
+
+### 1. Clone
+
+```bash
 git clone https://github.com/Munim-nust/ahu-opc-stack.git
 cd ahu-opc-stack
-2️⃣ Backend Setup (Python Virtual Environment)
+```
 
-Navigate to backend:
+### 2. Backend
 
+```bash
 cd backend
-
-Create virtual environment:
-
 python -m venv venv
-
-Activate it (Windows):
-
-venv\Scripts\activate
-
-Install dependencies:
-
+venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-3️⃣ Configure Database Connection
+```
 
-Copy the example configuration file:
+### 3. Database
 
-copy db_config.example.py db_config.py
-
-Open db_config.py and update your PostgreSQL password.
-
-4️⃣ PostgreSQL Setup
-
-Open PostgreSQL:
-
+```bash
 "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres
+```
 
-Inside psql, run:
-
+```sql
 CREATE DATABASE ahu_db;
-\c ahu_db
+\q
+```
 
-CREATE TABLE IF NOT EXISTS tag_reading (
-    id SERIAL PRIMARY KEY,
-    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ahu_id TEXT NOT NULL,
-    tag_name TEXT NOT NULL,
-    value_num DOUBLE PRECISION,
+The backend creates the `tag_reading` table and index automatically on first startup.
+
+### 4. Database config
+
+```bash
+copy db_config.example.py db_config.py
+```
+
+Edit `db_config.py` and set your PostgreSQL password.
+
+### 5. Frontend
+
+```bash
+cd frontend
+npm install
+```
+
+---
+
+## Running
+
+Two terminals required (Kepware must already be running):
+
+**Terminal 1 — FastAPI backend**
+```bash
+cd backend
+venv\Scripts\activate
+set PYTHONIOENCODING=utf-8
+python -m uvicorn api_bridge:app --port 8001
+```
+
+**Terminal 2 — Next.js frontend**
+```bash
+cd frontend
+npm run dev
+```
+
+| URL | Description |
+|---|---|
+| http://localhost:3000 | Realtime dashboard |
+| http://localhost:3000/analytics | Historical KPIs & analytics |
+| http://localhost:8001/docs | FastAPI Swagger UI |
+
+---
+
+## Kepware Tag Mapping
+
+The backend reads the following tags from Kepware under `AHU_Channel.AHU_Device.AHU_001`:
+
+| Logical Name | Kepware Tag | Unit |
+|---|---|---|
+| ChilledWaterInletTemp_C | CHW_Inlet_Temp | °C |
+| ChilledWaterOutletTemp_C | CHW_Outlet_Temp | °C |
+| ChilledWaterFlowRate_kgps | CHW_Flow_Rate | kg/s |
+| MixedAirTemp_C | Mixed_Air_Temp | °C |
+| MixedAirPressure_Pa | Mixed_Air_Pressure | Pa |
+| InletFilterDP_Pa | Filter_DP | Pa |
+| DischargeAirTemp_C | Discharge_Air_Temp | °C |
+| DischargeAirMassFlow_kgps | Discharge_Air_Mass_Flow | kg/s |
+| CoolingDemand_TR | Cooling_Demand | TR |
+| FanSpeed_rpm | Fan_Speed | RPM |
+| CoilFoulingFactor | Coil_Fouling_Factor | — |
+| OverallHeatTransferCoeff | Overall_Heat_Transfer_Coeff | — |
+| RunningUsefulHoursOfBelt_hr | Running_Useful_Hours_Belt | hr |
+| ExpectedLifeOfFilter_hr | Expected_Life_Filter | hr |
+| RunningHours_hr | Running_Hours | hr |
+| AHUStatus | AHU_Status | ON/ALARM |
+
+Four chart series tags (`CHW_Energy_Expected`, `CHW_Energy_Current`, `CoolingDemand_Btu`, `CoolingDelivered_Btu`) are computed from the Kepware values and stored alongside them.
+
+---
+
+## KPI Calculations
+
+| KPI | Formula |
+|---|---|
+| Cooling Energy (kWh) | `∑ (m_dot × 4.186 × │T_out − T_in│) / 3600` integrated over 24h |
+| Filter Remaining Life % | `(250 − avg_DP_Pa) / (250 − 50) × 100` (50 Pa = clean, 250 Pa = replace) |
+| Est. Electricity Cost | `(cooling_kWh + fan_kWh + 15% pump) × $0.12/kWh` |
+| COP | `avg_cooling_kW / avg_fan_power_kW` |
+| CHW Energy (chart) | `m_dot × Cp × │ΔT│` (kW) |
+| Cooling Btu (chart) | `CoolingDemand_TR × 12000` |
+
+---
+
+## Database Schema
+
+```sql
+CREATE TABLE tag_reading (
+    id         SERIAL PRIMARY KEY,
+    time       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ahu_id     TEXT NOT NULL,
+    tag_name   TEXT NOT NULL,
+    value_num  DOUBLE PRECISION,
     value_text TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_tag_reading_lookup
+CREATE INDEX idx_tag_reading_lookup
 ON tag_reading (ahu_id, tag_name, time DESC);
+```
 
-\q
-▶️ Running the System
+Query latest values:
+```sql
+SELECT DISTINCT ON (tag_name) tag_name, value_num, value_text, time
+FROM tag_reading
+ORDER BY tag_name, time DESC;
+```
 
-You need three terminals running simultaneously.
+---
 
-🔹 Terminal 1 – Start OPC UA Server
-cd backend
-venv\Scripts\activate
-python opc_server.py
+## Project Structure
 
-Expected output:
-
-OPC UA Server running
-Endpoint: opc.tcp://0.0.0.0:4840/ahu-opcua/
-🔹 Terminal 2 – Start FastAPI Backend
-cd backend
-venv\Scripts\activate
-python -m uvicorn api_bridge:app --reload --port 8000
-
-Expected output:
-
-Uvicorn running on http://127.0.0.1:8000
-🔹 Terminal 3 – Start Frontend
-cd frontend
-npm install
-npm run dev
-
-Open in browser:
-
-Realtime Dashboard
-http://localhost:3000
-
-Historical KPIs
-http://localhost:3000/analytics
-
-🧪 Manual Testing (Write Values to OPC)
-
-Open a new terminal:
-
-cd backend
-venv\Scripts\activate
-
-Examples:
-
-Set alarm state:
-
-python opc_write_cli.py --tag AHUStatus --value ALARM
-
-Change cooling demand:
-
-python opc_write_cli.py --tag CoolingDemand_TR --value 900
-
-Change inlet temperature:
-
-python opc_write_cli.py --tag ChilledWaterInletTemp_C --value 12
-
-Realtime dashboard updates instantly.
-
-Analytics page updates after values are logged into PostgreSQL.
-
-🛑 Stopping the System
-
-Press:
-
-CTRL + C
-
-in each running terminal.
-
-🔁 Restarting Later
-
-Activate the virtual environment and start services again.
-
-Backend
-cd backend
-venv\Scripts\activate
-python opc_server.py
-python -m uvicorn api_bridge:app --reload --port 8000
-Frontend
-cd frontend
-npm run dev
-📌 Notes
-
-Data is currently simulated via OPC UA.
-
-Architecture mirrors real industrial deployments.
-
-Easily extendable to MQTT, BACnet, Modbus.
-
-Designed to scale with additional KPIs and analytics features.
+```
+ahu-opc-stack/
+├── backend/
+│   ├── api_bridge.py        # FastAPI app — OPC poller, DB writer, WebSocket, REST API
+│   ├── opc_server.py        # Python OPC UA server (dev/simulation fallback)
+│   ├── opc_write_cli.py     # CLI tool to manually write OPC tags
+│   ├── db_config.py         # PostgreSQL connection config (gitignored)
+│   ├── db_config.example.py # Config template
+│   └── requirements.txt
+└── frontend/
+    └── app/
+        ├── page.tsx              # Realtime dashboard
+        ├── analytics/page.tsx    # Historical KPIs + PDF report
+        └── api/
+            ├── kpis/route.ts     # Proxy → /api/kpis
+            └── history/route.ts  # Proxy → /api/history
+```

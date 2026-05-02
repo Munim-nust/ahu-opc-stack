@@ -76,7 +76,7 @@ async def main():
         await var.set_writable()
         nodes[name] = var
 
-    print("\n✅ OPC UA Server running (NoSecurity Dev Mode)")
+    print("\n[OK] OPC UA Server running (NoSecurity Dev Mode)")
     print(f"Endpoint: {ENDPOINT}")
     print("Browse: Objects -> IntelliAHU -> AHU-0001 -> Tags / Series")
     print("Manual write via opc_write_cli.py\n")
