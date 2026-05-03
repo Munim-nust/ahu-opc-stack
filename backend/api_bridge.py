@@ -53,6 +53,9 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="AHU Pipeline — Kepware -> Postgres -> Dashboard", lifespan=lifespan)
 
+from chat import router as chat_router
+app.include_router(chat_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001"],
@@ -437,6 +440,105 @@ async def get_kpis(ahuId: str = "AHU-0001"):
         if avg_cooling_kw is not None and fan_power_avg is not None and float(fan_power_avg) > 0:
             cop = float(avg_cooling_kw) / float(fan_power_avg)
 
+        # --- Tier 2 KPIs — Predictive Maintenance ---
+
+        # 1. Coil fouling trend — slope of CoilFoulingFactor over 7 days (units/day)
+        # Uses least-squares linear regression: slope = (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)
+        # x = epoch seconds, y = CoilFoulingFactor value
+        fouling_slope = await conn.fetchval(
+            """
+            SELECT
+                (COUNT(*) * SUM(EXTRACT(EPOCH FROM time) * value_num)
+                 - SUM(EXTRACT(EPOCH FROM time)) * SUM(value_num))
+                /
+                NULLIF(
+                    COUNT(*) * SUM(EXTRACT(EPOCH FROM time)^2)
+                    - SUM(EXTRACT(EPOCH FROM time))^2
+                , 0) * 86400.0
+            FROM tag_reading
+            WHERE ahu_id=$1 AND tag_name='CoilFoulingFactor' AND time>=$2
+            """,
+            ahuId, t7d,
+        )
+
+        # 2. Belt remaining life %
+        # Design life = 2000 hr; RunningUsefulHoursOfBelt_hr is cumulative wear hours
+        BELT_DESIGN_LIFE_HR = 2000.0
+        avg_belt_hours = await conn.fetchval(
+            "SELECT AVG(value_num) FROM tag_reading "
+            "WHERE ahu_id=$1 AND tag_name='RunningUsefulHoursOfBelt_hr' AND time>=$2",
+            ahuId, t24,
+        )
+        belt_remaining_pct = None
+        if avg_belt_hours is not None:
+            belt_remaining_pct = max(0.0, min(100.0,
+                (1.0 - float(avg_belt_hours) / BELT_DESIGN_LIFE_HR) * 100.0
+            ))
+
+        # 3. Mean Time Between Alarms (MTBA) in hours over last 7 days
+        # MTBA = fan_runtime_hours_7d / alarm_event_count
+        # Alarm event = transition from non-ALARM to ALARM (leading edge count)
+        alarm_count_7d = await conn.fetchval(
+            """
+            WITH ordered AS (
+                SELECT time, value_text,
+                       LAG(value_text) OVER (ORDER BY time) AS prev
+                FROM tag_reading
+                WHERE ahu_id=$1 AND tag_name='AHUStatus' AND time>=$2
+            )
+            SELECT COUNT(*) FROM ordered
+            WHERE value_text='ALARM' AND (prev IS NULL OR prev <> 'ALARM')
+            """,
+            ahuId, t7d,
+        )
+        fan_runtime_7d_pct = await conn.fetchval(
+            "SELECT 100.0 * AVG(CASE WHEN value_num > 100 THEN 1 ELSE 0 END) "
+            "FROM tag_reading WHERE ahu_id=$1 AND tag_name='FanSpeed_rpm' AND time>=$2",
+            ahuId, t7d,
+        )
+        mtba_hours = None
+        if alarm_count_7d is not None and fan_runtime_7d_pct is not None:
+            fan_hrs_7d = (float(fan_runtime_7d_pct) / 100.0) * 24.0 * 7.0
+            mtba_hours = fan_hrs_7d / float(alarm_count_7d) if int(alarm_count_7d) > 0 else fan_hrs_7d
+
+        # 4. Filter DP acceleration (Pa/day²)
+        # Compares slope of last 24h vs slope of prior 24h (48h-24h window)
+        # Positive = DP growing faster than before (accelerating fouling / damage)
+        t48 = now - timedelta(hours=48)
+        slope_recent = await conn.fetchval(
+            """
+            SELECT
+                (COUNT(*) * SUM(EXTRACT(EPOCH FROM time) * value_num)
+                 - SUM(EXTRACT(EPOCH FROM time)) * SUM(value_num))
+                /
+                NULLIF(
+                    COUNT(*) * SUM(EXTRACT(EPOCH FROM time)^2)
+                    - SUM(EXTRACT(EPOCH FROM time))^2
+                , 0) * 86400.0
+            FROM tag_reading
+            WHERE ahu_id=$1 AND tag_name='InletFilterDP_Pa' AND time>=$2
+            """,
+            ahuId, t24,
+        )
+        slope_prior = await conn.fetchval(
+            """
+            SELECT
+                (COUNT(*) * SUM(EXTRACT(EPOCH FROM time) * value_num)
+                 - SUM(EXTRACT(EPOCH FROM time)) * SUM(value_num))
+                /
+                NULLIF(
+                    COUNT(*) * SUM(EXTRACT(EPOCH FROM time)^2)
+                    - SUM(EXTRACT(EPOCH FROM time))^2
+                , 0) * 86400.0
+            FROM tag_reading
+            WHERE ahu_id=$1 AND tag_name='InletFilterDP_Pa' AND time>=$2 AND time<$3
+            """,
+            ahuId, t48, t24,
+        )
+        dp_acceleration = None
+        if slope_recent is not None and slope_prior is not None:
+            dp_acceleration = float(slope_recent) - float(slope_prior)
+
     f = lambda x: float(x) if x is not None else None
     return {
         "ahuId": ahuId,
@@ -452,6 +554,11 @@ async def get_kpis(ahuId: str = "AHU-0001"):
         "filter_remaining_life_pct": f(filter_remaining_pct),
         "est_electricity_cost_usd_24h": f(est_electricity_cost),
         "cop_24h": f(cop),
+        # Tier 2
+        "coil_fouling_slope_7d": f(fouling_slope),
+        "belt_remaining_life_pct": f(belt_remaining_pct),
+        "mtba_hours_7d": f(mtba_hours),
+        "dp_acceleration_pa_per_day": f(dp_acceleration),
     }
 
 

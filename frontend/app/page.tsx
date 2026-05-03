@@ -23,6 +23,13 @@ type WsMessage =
   | { type: "snapshot"; latest: LatestPayload; series: any[] }
   | { type: "update"; latest: LatestPayload; series: any[] };
 
+function fmtVal(v: any): string {
+  if (v === null || v === undefined) return "-";
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
 function Card({
   title,
   value,
@@ -44,7 +51,7 @@ function Card({
 
         <div className="mt-2 flex items-baseline gap-2">
           <div className="text-2xl font-extrabold tracking-tight text-slate-900">
-            {value ?? "-"}
+            {fmtVal(value)}
           </div>
           {unit && <div className="text-sm font-medium text-slate-500">{unit}</div>}
         </div>
@@ -62,41 +69,50 @@ export default function Page() {
 
   useEffect(() => {
     let alive = true;
-    const ahuId = "AHU-0001";
-    const ws = new WebSocket(`ws://localhost:8001/ws/ahu/${ahuId}`);
+    let ws: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    ws.onopen = () => {
+    function connect() {
       if (!alive) return;
-      setWsState("connected");
-      ws.send("hello");
-    };
+      setWsState("connecting");
+      ws = new WebSocket(`ws://localhost:8001/ws/ahu/AHU-0001`);
 
-    ws.onmessage = (event) => {
-      if (!alive) return;
-      try {
-        const msg: WsMessage = JSON.parse(event.data);
-        setLatest(msg.latest);
-        setSeries(msg.series ?? []);
-      } catch {
-        // ignore
-      }
-    };
+      ws.onopen = () => {
+        if (!alive) return;
+        setWsState("connected");
+        ws!.send("hello");
+      };
 
-    ws.onerror = () => {
-      if (!alive) return;
-      setWsState("disconnected");
-    };
+      ws.onmessage = (event) => {
+        if (!alive) return;
+        try {
+          const msg: WsMessage = JSON.parse(event.data);
+          setLatest(msg.latest);
+          setSeries(msg.series ?? []);
+        } catch {
+          // ignore malformed frames
+        }
+      };
 
-    ws.onclose = () => {
-      if (!alive) return;
-      setWsState("disconnected");
-    };
+      ws.onerror = () => {
+        if (!alive) return;
+        setWsState("disconnected");
+      };
+
+      ws.onclose = () => {
+        if (!alive) return;
+        setWsState("disconnected");
+        // Auto-reconnect after 3 s
+        retryTimer = setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
 
     return () => {
       alive = false;
-      try {
-        ws.close();
-      } catch {}
+      if (retryTimer) clearTimeout(retryTimer);
+      try { ws?.close(); } catch {}
     };
   }, []);
 
@@ -167,12 +183,18 @@ export default function Page() {
           </div>
 
           {/* Right: Nav button */}
-          <div className="flex justify-center md:justify-end">
+          <div className="flex justify-center gap-3 md:justify-end">
             <Link
               href="/analytics"
               className="inline-flex items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-bold tracking-wide text-blue-700 shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:bg-blue-50 hover:shadow-xl"
             >
-              View Historical KPIs →
+              Historical KPIs →
+            </Link>
+            <Link
+              href="/chat"
+              className="inline-flex items-center justify-center rounded-xl bg-sky-900/30 px-5 py-3 text-sm font-bold tracking-wide text-white ring-1 ring-white/30 shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:bg-sky-900/50 hover:shadow-xl"
+            >
+              AI Analytics ✦
             </Link>
           </div>
         </div>
@@ -255,8 +277,8 @@ export default function Page() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="demand" name="Demand" dot={false} />
-                <Line type="monotone" dataKey="delivered" name="Delivered" dot={false} />
+                <Line type="monotone" dataKey="demand" name="Demand" stroke="#f43f5e" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="delivered" name="Delivered" stroke="#10b981" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>

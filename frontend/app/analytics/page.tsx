@@ -29,6 +29,11 @@ type KPIResponse = {
   filter_remaining_life_pct: number | null;
   est_electricity_cost_usd_24h: number | null;
   cop_24h: number | null;
+  // Tier 2
+  coil_fouling_slope_7d: number | null;
+  belt_remaining_life_pct: number | null;
+  mtba_hours_7d: number | null;
+  dp_acceleration_pa_per_day: number | null;
 };
 
 type HistoryPoint = {
@@ -680,6 +685,162 @@ export default function AnalyticsPage() {
           })()}
         </section>
 
+        {/* Tier 2 — Predictive Maintenance KPIs */}
+        <div className="mt-4 mb-1 flex items-center gap-3">
+          <div className="h-px flex-1 bg-rose-100" />
+          <span className="text-xs font-semibold tracking-widest text-rose-600 uppercase">Predictive Maintenance</span>
+          <div className="h-px flex-1 bg-rose-100" />
+        </div>
+
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* Coil Fouling Trend */}
+          {(() => {
+            const slope = kpis?.coil_fouling_slope_7d ?? null;
+            const color = slope === null ? "slate" : slope <= 0.1 ? "emerald" : slope <= 0.5 ? "amber" : "red";
+            const badgeMap: Record<string, string> = {
+              emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+              amber:   "bg-amber-50 text-amber-700 ring-amber-200",
+              red:     "bg-red-50 text-red-700 ring-red-200",
+              slate:   "bg-slate-50 text-slate-600 ring-slate-200",
+            };
+            const gradMap: Record<string, string> = {
+              emerald: "from-emerald-400 to-teal-400",
+              amber:   "from-amber-400 to-orange-400",
+              red:     "from-red-400 to-rose-500",
+              slate:   "from-slate-300 to-slate-400",
+            };
+            const label = slope === null ? "—" : slope <= 0.1 ? "Stable" : slope <= 0.5 ? "Watch" : "Clean Soon";
+            return (
+              <div className="group overflow-hidden rounded-2xl border border-orange-100 bg-white/90 shadow-lg backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl">
+                <div className={`h-1 w-full bg-gradient-to-r ${gradMap[color]}`} />
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[11px] font-semibold tracking-wide text-slate-500">Coil Fouling Trend (7d)</div>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ring-1 ${badgeMap[color]}`}>{label}</span>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <div className="text-2xl font-extrabold tracking-tight text-slate-900">
+                      {slope !== null ? slope.toFixed(3) : "—"}
+                    </div>
+                    <div className="text-sm font-medium text-slate-500">units/day</div>
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-400">Linear slope of CoilFoulingFactor over 7d</div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Belt Remaining Life */}
+          {(() => {
+            const pct = kpis?.belt_remaining_life_pct ?? null;
+            const color = pct === null ? "slate" : pct > 40 ? "emerald" : pct > 15 ? "amber" : "red";
+            const badgeMap: Record<string, string> = {
+              emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+              amber:   "bg-amber-50 text-amber-700 ring-amber-200",
+              red:     "bg-red-50 text-red-700 ring-red-200",
+              slate:   "bg-slate-50 text-slate-600 ring-slate-200",
+            };
+            const gradMap: Record<string, string> = {
+              emerald: "from-emerald-400 to-teal-400",
+              amber:   "from-amber-400 to-orange-400",
+              red:     "from-red-400 to-rose-500",
+              slate:   "from-slate-300 to-slate-400",
+            };
+            const label = pct === null ? "—" : pct > 40 ? "Good" : pct > 15 ? "Monitor" : "Replace Soon";
+            return (
+              <div className="group overflow-hidden rounded-2xl border border-rose-100 bg-white/90 shadow-lg backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl">
+                <div className={`h-1 w-full bg-gradient-to-r ${gradMap[color]}`} />
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[11px] font-semibold tracking-wide text-slate-500">Belt Remaining Life</div>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ring-1 ${badgeMap[color]}`}>{label}</span>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <div className="text-2xl font-extrabold tracking-tight text-slate-900">
+                      {pct !== null ? pct.toFixed(1) : "—"}
+                    </div>
+                    <div className="text-sm font-medium text-slate-500">%</div>
+                  </div>
+                  {pct !== null && (
+                    <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100">
+                      <div className={`h-1.5 rounded-full bg-gradient-to-r ${gradMap[color]} transition-all`} style={{ width: `${pct}%` }} />
+                    </div>
+                  )}
+                  <div className="mt-1 text-[10px] text-slate-400">Based on 2000 hr design life</div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* MTBA */}
+          {(() => {
+            const mtba = kpis?.mtba_hours_7d ?? null;
+            const color = mtba === null ? "slate" : mtba >= 48 ? "emerald" : mtba >= 12 ? "amber" : "red";
+            const badgeMap: Record<string, string> = {
+              emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+              amber:   "bg-amber-50 text-amber-700 ring-amber-200",
+              red:     "bg-red-50 text-red-700 ring-red-200",
+              slate:   "bg-slate-50 text-slate-600 ring-slate-200",
+            };
+            const label = mtba === null ? "—" : mtba >= 48 ? "Reliable" : mtba >= 12 ? "Watch" : "Unstable";
+            return (
+              <div className="group overflow-hidden rounded-2xl border border-indigo-100 bg-white/90 shadow-lg backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl">
+                <div className="h-1 w-full bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-500" />
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[11px] font-semibold tracking-wide text-slate-500">MTBA (7d)</div>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ring-1 ${badgeMap[color]}`}>{label}</span>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <div className="text-2xl font-extrabold tracking-tight text-slate-900">
+                      {mtba !== null ? mtba.toFixed(1) : "—"}
+                    </div>
+                    <div className="text-sm font-medium text-slate-500">hrs</div>
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-400">Mean time between alarm events</div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Filter DP Acceleration */}
+          {(() => {
+            const acc = kpis?.dp_acceleration_pa_per_day ?? null;
+            const color = acc === null ? "slate" : acc <= 0 ? "emerald" : acc <= 2 ? "amber" : "red";
+            const badgeMap: Record<string, string> = {
+              emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+              amber:   "bg-amber-50 text-amber-700 ring-amber-200",
+              red:     "bg-red-50 text-red-700 ring-red-200",
+              slate:   "bg-slate-50 text-slate-600 ring-slate-200",
+            };
+            const gradMap: Record<string, string> = {
+              emerald: "from-emerald-400 to-teal-400",
+              amber:   "from-amber-400 to-orange-400",
+              red:     "from-red-400 to-rose-500",
+              slate:   "from-slate-300 to-slate-400",
+            };
+            const label = acc === null ? "—" : acc <= 0 ? "Stable" : acc <= 2 ? "Speeding Up" : "Spike";
+            return (
+              <div className="group overflow-hidden rounded-2xl border border-red-100 bg-white/90 shadow-lg backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl">
+                <div className={`h-1 w-full bg-gradient-to-r ${gradMap[color]}`} />
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[11px] font-semibold tracking-wide text-slate-500">Filter DP Acceleration</div>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ring-1 ${badgeMap[color]}`}>{label}</span>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <div className="text-2xl font-extrabold tracking-tight text-slate-900">
+                      {acc !== null ? (acc > 0 ? "+" : "") + acc.toFixed(2) : "—"}
+                    </div>
+                    <div className="text-sm font-medium text-slate-500">Pa/day</div>
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-400">Change in DP growth rate vs prior 24h</div>
+                </div>
+              </div>
+            );
+          })()}
+        </section>
+
         <section className="mt-6 grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
           <SidebarTree
             ahuId={ahuId}
@@ -913,6 +1074,32 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
+        {/* Section 1c — Predictive Maintenance KPIs */}
+        <div className="pdf-section-title">Predictive Maintenance — 7-Day Analysis</div>
+        <div className="pdf-kpi-grid">
+          <div className="pdf-kpi-card pdf-kpi-card-maint">
+            <div className="pdf-kpi-label">Coil Fouling Trend (7d)</div>
+            <div className="pdf-kpi-value">{fmt(kpis?.coil_fouling_slope_7d, 3)}<span className="pdf-kpi-unit"> units/day</span></div>
+          </div>
+          <div className="pdf-kpi-card pdf-kpi-card-maint">
+            <div className="pdf-kpi-label">Belt Remaining Life</div>
+            <div className="pdf-kpi-value">{fmt(kpis?.belt_remaining_life_pct, 1)}<span className="pdf-kpi-unit"> %</span></div>
+          </div>
+          <div className="pdf-kpi-card pdf-kpi-card-maint">
+            <div className="pdf-kpi-label">MTBA (7d)</div>
+            <div className="pdf-kpi-value">{fmt(kpis?.mtba_hours_7d, 1)}<span className="pdf-kpi-unit"> hrs</span></div>
+          </div>
+          <div className="pdf-kpi-card pdf-kpi-card-maint">
+            <div className="pdf-kpi-label">Filter DP Acceleration</div>
+            <div className="pdf-kpi-value">
+              {kpis?.dp_acceleration_pa_per_day !== null && kpis?.dp_acceleration_pa_per_day !== undefined
+                ? (kpis.dp_acceleration_pa_per_day > 0 ? "+" : "") + kpis.dp_acceleration_pa_per_day.toFixed(2)
+                : "—"}
+              <span className="pdf-kpi-unit"> Pa/day</span>
+            </div>
+          </div>
+        </div>
+
         {/* Section 2 — Selected Tag Statistics */}
         <div className="pdf-section-title">Tag Statistics — {selectedTrend?.label ?? "Selected Tag"}</div>
         <div className="pdf-stats-grid">
@@ -1130,6 +1317,10 @@ export default function AnalyticsPage() {
           .pdf-kpi-card-energy {
             background: #f0fdf4;
             border-color: #bbf7d0;
+          }
+          .pdf-kpi-card-maint {
+            background: #fff1f2;
+            border-color: #fecdd3;
           }
           .pdf-kpi-label {
             font-size: 9px;
